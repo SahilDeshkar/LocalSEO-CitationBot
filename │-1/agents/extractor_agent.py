@@ -1,4 +1,3 @@
-# This file is intentionally left blank.
 # agents/extractor_agent.py
 """Agent for extracting NAP information from Google Maps."""
 import re
@@ -32,6 +31,9 @@ class ExtractorAgent(BaseAgent):
         self.log_start(f"Processing URL: {google_maps_url}")
         
         try:
+            if not google_maps_url:
+                raise ValueError("No Google Maps URL provided")
+                
             # Initialize Chrome webdriver with options
             ua = UserAgent()
             options = Options()
@@ -78,7 +80,7 @@ class ExtractorAgent(BaseAgent):
                         break
                 if not name:
                     title = driver.title
-                    if " - " in title:
+                    if title and " - " in title:
                         name = title.split(" - ")[0].strip()
                 if not name:
                     self.logger.warning("Could not find business name with standard selectors")
@@ -118,10 +120,12 @@ class ExtractorAgent(BaseAgent):
                 ]
                 for method in address_methods:
                     elements = method()
-                    if elements and elements[0].text.strip():
-                        address = elements[0].text.strip()
-                        if address.lower().startswith("address:"):
-                            address = address[8:].strip()
+                    if elements and elements[0].text and elements[0].text.strip():
+                        address_text = elements[0].text.strip()
+                        if address_text.lower().startswith("address:"):
+                            address = address_text[8:].strip()
+                        else:
+                            address = address_text
                         break
                 if not address:
                     page_text = driver.page_source
@@ -145,10 +149,12 @@ class ExtractorAgent(BaseAgent):
                 ]
                 for method in phone_methods:
                     elements = method()
-                    if elements and elements[0].text.strip():
-                        phone = elements[0].text.strip()
-                        if phone.lower().startswith("phone:"):
-                            phone = phone[6:].strip()
+                    if elements and elements[0].text and elements[0].text.strip():
+                        phone_text = elements[0].text.strip()
+                        if phone_text.lower().startswith("phone:"):
+                            phone = phone_text[6:].strip()
+                        else:
+                            phone = phone_text
                         break
                 if not phone:
                     page_text = driver.page_source
@@ -175,12 +181,14 @@ class ExtractorAgent(BaseAgent):
             if missing:
                 self.logger.warning(f"Incomplete NAP data. Missing: {', '.join(missing)}")
             
+            # Make sure all fields have a value, even if empty string
+            # This prevents errors when using the data later
             result = {
                 "success": bool(name and address and phone),
                 "partial_success": bool(name or address or phone),
-                "name": name,
-                "address": address,
-                "phone": phone,
+                "name": name or "",
+                "address": address or "",
+                "phone": phone or "",
                 "source_url": google_maps_url
             }
             

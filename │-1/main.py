@@ -76,6 +76,14 @@ async def run_workflow(maps_url, progress_bar=None, status_text=None):
     logger.info(f"Starting workflow for URL: {maps_url}")
     output_dir = ensure_output_directory()
     
+    # Validate the URL is not empty
+    if not maps_url or not maps_url.strip():
+        error_msg = "Google Maps URL cannot be empty"
+        logger.error(error_msg)
+        if status_text:
+            status_text.text(f"❌ Error: {error_msg}")
+        return {"success": False, "stage": "validation", "error": error_msg}
+        
     # Update UI
     if status_text:
         status_text.text("Starting workflow...")
@@ -91,39 +99,42 @@ async def run_workflow(maps_url, progress_bar=None, status_text=None):
     # Step 1: Extract NAP from Google Maps
     if status_text:
         status_text.text("Extracting business information from Google Maps...")
+    
     extraction_results = await extractor.run(maps_url)
     
     if progress_bar:
         progress_bar.progress(20)
     
-    # Handle partial extraction results
-    if not extraction_results.get("success"):
-        # Check if we have at least a name to work with
-        if extraction_results.get("name"):
-            logger.warning("Only partial information extracted. Continuing with available data.")
-            # Set partial_success flag
-            extraction_results["partial_success"] = True
-        else:
-            logger.error(f"Extraction failed: {extraction_results.get('error', 'Unknown error')}")
-            if status_text:
-                status_text.text(f"❌ Extraction failed: {extraction_results.get('error', 'Unknown error')}")
-            return {
-                "success": False,
-                "stage": "extraction",
-                "error": extraction_results.get("error", "Failed to extract required information")
-            }
+    # Handle extraction failure
+    if not extraction_results.get("success") and not extraction_results.get("partial_success"):
+        error_msg = extraction_results.get('error', 'Failed to extract required information')
+        logger.error(f"Extraction failed: {error_msg}")
+        if status_text:
+            status_text.text(f"❌ Extraction failed: {error_msg}")
+        return {
+            "success": False,
+            "stage": "extraction",
+            "error": error_msg
+        }
+    
+    # Validate name is present
+    if not extraction_results.get("name"):
+        error_msg = "Failed to extract business name, which is required"
+        logger.error(error_msg)
+        if status_text:
+            status_text.text(f"❌ {error_msg}")
+        return {
+            "success": False,
+            "stage": "extraction",
+            "error": error_msg
+        }
     
     logger.info(f"Extracted business: {extraction_results['name']}")
     
-    # Fill in missing data with placeholders if we have partial information
-    if extraction_results.get("partial_success") and extraction_results.get("name"):
-        if not extraction_results.get("address"):
-            extraction_results["address"] = "Address unavailable"
-            logger.warning("Using placeholder for missing address")
-            
-        if not extraction_results.get("phone"):
-            extraction_results["phone"] = "Phone unavailable"
-            logger.warning("Using placeholder for missing phone")
+    # Ensure all fields are at least empty strings, not None
+    extraction_results["name"] = extraction_results.get("name", "")
+    extraction_results["address"] = extraction_results.get("address", "Address unavailable")
+    extraction_results["phone"] = extraction_results.get("phone", "Phone unavailable")
     
     # Step 2: Research directory presence
     if status_text:
@@ -134,11 +145,16 @@ async def run_workflow(maps_url, progress_bar=None, status_text=None):
     if progress_bar:
         progress_bar.progress(50)
     
-    if not research_results["success"]:
-        logger.error(f"Research failed: {research_results.get('error', 'Unknown error')}")
+    if not research_results.get("success"):
+        error_msg = research_results.get('error', 'Research failed')
+        logger.error(f"Research failed: {error_msg}")
         if status_text:
-            status_text.text(f"❌ Research failed: {research_results.get('error', 'Unknown error')}")
-        return {"success": False, "stage": "research", "error": research_results.get("error")}
+            status_text.text(f"❌ Research failed: {error_msg}")
+        return {"success": False, "stage": "research", "error": error_msg}
+    
+    # Ensure we have missing_directories and selected_directories
+    research_results["missing_directories"] = research_results.get("missing_directories", [])
+    research_results["selected_directories"] = research_results.get("selected_directories", [])
     
     logger.info(f"Found {len(research_results['missing_directories'])} missing directories")
     
@@ -154,11 +170,15 @@ async def run_workflow(maps_url, progress_bar=None, status_text=None):
     if progress_bar:
         progress_bar.progress(75)
     
-    if not citation_results["success"]:
-        logger.error(f"Citation building failed: {citation_results.get('error', 'Unknown error')}")
+    if not citation_results.get("success"):
+        error_msg = citation_results.get('error', 'Citation building failed')
+        logger.error(f"Citation building failed: {error_msg}")
         if status_text:
-            status_text.text(f"❌ Citation building failed: {citation_results.get('error', 'Unknown error')}")
-        return {"success": False, "stage": "citation_building", "error": citation_results.get("error")}
+            status_text.text(f"❌ Citation building failed: {error_msg}")
+        return {"success": False, "stage": "citation_building", "error": error_msg}
+    
+    # Ensure citations dictionary exists
+    citation_results["citations"] = citation_results.get("citations", {})
     
     # Step 4: Generate summary
     if status_text:
@@ -173,11 +193,15 @@ async def run_workflow(maps_url, progress_bar=None, status_text=None):
     if progress_bar:
         progress_bar.progress(90)
     
-    if not summary_results["success"]:
-        logger.error(f"Summary generation failed: {summary_results.get('error', 'Unknown error')}")
+    if not summary_results.get("success"):
+        error_msg = summary_results.get('error', 'Summary generation failed')
+        logger.error(f"Summary generation failed: {error_msg}")
         if status_text:
-            status_text.text(f"❌ Summary generation failed: {summary_results.get('error', 'Unknown error')}")
-        return {"success": False, "stage": "summary", "error": summary_results.get("error")}
+            status_text.text(f"❌ Summary generation failed: {error_msg}")
+        return {"success": False, "stage": "summary", "error": error_msg}
+    
+    # Ensure summary exists
+    summary_results["summary"] = summary_results.get("summary", "Summary unavailable")
     
     # Step 5: Create output file
     try:
